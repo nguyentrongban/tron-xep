@@ -6,8 +6,8 @@ const PRIMARY_MODEL_URL =
 const FALLBACK_MODEL_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent';
 
-// Client (index.html) tự hủy request sau 5 giây, nên server phải trả lời trước mốc đó.
-const TOTAL_BUDGET_MS = 4700;
+// Client (index.html) tự hủy request sau 8 giây, nên server phải trả lời trước mốc đó.
+const TOTAL_BUDGET_MS = 7500;
 
 // Đọc key từ biến môi trường: GEMINI_API_KEY_1 ... GEMINI_API_KEY_7
 // (vẫn nhận GEMINI_API_KEY cũ để không bị lỗi nếu chưa đổi tên).
@@ -49,6 +49,31 @@ function cooldownFor(status) {
   if (status === 429) return 60 * 1000; // hết lượt/phút
   if (status === 400 || status === 401 || status === 403) return 5 * 60 * 1000; // key hỏng
   return 5 * 1000; // lỗi tạm thời
+}
+
+
+// Bỏ các phần "suy nghĩ" (thought) của model để client không hiện phân tích nội bộ.
+function stripThoughts(data) {
+  try {
+    for (const c of data?.candidates || []) {
+      if (Array.isArray(c?.content?.parts)) {
+        c.content.parts = c.content.parts.filter((p) => !p?.thought);
+      }
+    }
+  } catch {}
+  return data;
+}
+
+// Model dự phòng (Gemma) hay viết phân tích tiếng Anh trước khi trả lời -> dặn thêm vào system prompt.
+const NO_ANALYSIS =
+  'QUAN TRỌNG: Chỉ viết đúng câu trả lời cuối cùng bằng tiếng Việt. Tuyệt đối không phân tích, không liệt kê gạch đầu dòng, không viết tiếng Anh, không nhắc lại vai/bối cảnh/yêu cầu.';
+
+function forFallback(body) {
+  const b = JSON.parse(JSON.stringify(body || {}));
+  const parts = b.systemInstruction?.parts;
+  if (Array.isArray(parts)) parts.push({ text: NO_ANALYSIS });
+  else b.systemInstruction = { parts: [{ text: NO_ANALYSIS }] };
+  return b;
 }
 
 // Xoay vòng qua toàn bộ key của MỘT model.
@@ -104,7 +129,7 @@ async function tryModel(modelUrl, raw, start) {
       }
 
       if (response.ok || !shouldRotate(response.status, data)) {
-        return { done: true, status: response.status, data };
+        return { done: true, status: response.status, data: stripThoughts(data) };
       }
 
       // DEBUG CHI TIẾT: ghi lại nguyên nhân Gemini trả lỗi nhưng KHÔNG ghi API key.
@@ -163,6 +188,8 @@ async function tryModel(modelUrl, raw, start) {
   return { done: false, lastStatus, lastData, saw429 };
 }
 
+export const config = { maxDuration: 30 };
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -196,7 +223,7 @@ export default async function handler(req, res) {
 
     // Bước 2: tất cả key Gemini đều lỗi -> mới chuyển sang Gemma
     console.warn('Tất cả key Gemini đều lỗi, chuyển sang gemma-4-26b-a4b-it.');
-    const fallback = await tryModel(FALLBACK_MODEL_URL, raw, start);
+    const fallback = await tryModel(FALLBACK_MODEL_URL, JSON.stringify(forFallback(body)), start);
     if (fallback.done) {
       return res.status(fallback.status).json(fallback.data);
     }
