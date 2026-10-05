@@ -2,7 +2,14 @@
 const PRIMARY_MODEL_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent';
 
-// Model dự phòng: chỉ dùng khi TẤT CẢ key Gemini ở trên đều lỗi
+// Model Gemini thứ 2 (nhanh, quota tính RIÊNG): dùng khi model chính hết lượt, trước khi phải xuống Gemma.
+// Đổi tên bằng biến môi trường GEMINI_MODEL_2 trên Vercel nếu muốn model khác.
+const SECOND_MODEL_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/' +
+  (process.env.GEMINI_MODEL_2 || 'gemini-2.5-flash-lite') +
+  ':generateContent';
+
+// Model dự phòng cuối: chỉ dùng khi TẤT CẢ key của 2 model Gemini ở trên đều lỗi
 const FALLBACK_MODEL_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent';
 
@@ -32,6 +39,7 @@ console.log(`[GEMINI CONFIG] primary=${PRIMARY_MODEL_URL} fallback=${FALLBACK_MO
 // Mỗi model có con trỏ xoay vòng và bảng cooldown riêng (vì quota tính riêng theo từng model).
 const state = {
   [PRIMARY_MODEL_URL]: { cursor: 0, cooldownUntil: new Array(KEYS.length).fill(0) },
+  [SECOND_MODEL_URL]: { cursor: 0, cooldownUntil: new Array(KEYS.length).fill(0) },
   [FALLBACK_MODEL_URL]: { cursor: 0, cooldownUntil: new Array(KEYS.length).fill(0) }
 };
 
@@ -49,6 +57,7 @@ function shouldRotate(status, data) {
 // Sau thời gian này mới thử lại Gemini một lần.
 const PRIMARY_SKIP_MS = 30 * 60 * 1000;
 let primarySkipUntil = 0;
+let secondSkipUntil = 0;
 
 function cooldownFor(status) {
   if (status === 429) return 60 * 1000; // hết lượt/phút
@@ -251,7 +260,22 @@ export default async function handler(req, res) {
       }
     }
 
-    // Bước 2: tất cả key Gemini đều lỗi -> mới chuyển sang Gemma
+    // Bước 1.5: model chính hết lượt -> thử Gemini model thứ 2 (nhanh hơn Gemma nhiều)
+    let second = { done: false, saw429: false };
+    if (Date.now() >= secondSkipUntil) {
+      second = await tryModel(SECOND_MODEL_URL, raw, start);
+      if (second.done && (second.status === 404 || second.status === 400)) {
+        secondSkipUntil = Date.now() + 60 * 60 * 1000; // tên model sai/không hỗ trợ -> bỏ qua 1 giờ
+        console.warn('Model thứ 2 không dùng được (HTTP ' + second.status + '), chuyển Gemma. ' + (second.data?.error?.message || ''));
+      } else if (second.done) {
+        secondSkipUntil = 0;
+        return res.status(second.status).json(second.data);
+      } else if (second.n429 >= KEYS.length) {
+        secondSkipUntil = Date.now() + PRIMARY_SKIP_MS;
+      }
+    }
+
+    // Bước 2: cả 2 model Gemini đều lỗi -> mới chuyển sang Gemma
     console.warn('Tất cả key Gemini đều lỗi, chuyển sang gemma-4-26b-a4b-it.');
     let fallback = await tryModel(FALLBACK_MODEL_URL, JSON.stringify(forFallback(body, !gemmaThinkRejected)), start);
     if (
@@ -268,7 +292,7 @@ export default async function handler(req, res) {
     }
 
     // Cả Gemini lẫn Gemma đều lỗi: trả 429 nếu có key bị giới hạn để game hiện đúng thông báo
-    const saw429 = primary.saw429 || fallback.saw429;
+    const saw429 = primary.saw429 || second.saw429 || fallback.saw429;
     return res
       .status(saw429 ? 429 : fallback.lastStatus)
       .json(fallback.lastData);
