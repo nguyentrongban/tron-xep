@@ -45,6 +45,11 @@ function shouldRotate(status, data) {
   return false;
 }
 
+// Khi TẤT CẢ key Gemini đều 429 (hết quota ngày), tạm bỏ qua Gemini và chạy thẳng Gemma.
+// Sau thời gian này mới thử lại Gemini một lần.
+const PRIMARY_SKIP_MS = 30 * 60 * 1000;
+let primarySkipUntil = 0;
+
 function cooldownFor(status) {
   if (status === 429) return 60 * 1000; // hết lượt/phút
   if (status === 400 || status === 401 || status === 403) return 5 * 60 * 1000; // key hỏng
@@ -58,6 +63,9 @@ function stripThoughts(data) {
     for (const c of data?.candidates || []) {
       if (Array.isArray(c?.content?.parts)) {
         c.content.parts = c.content.parts.filter((p) => !p?.thought);
+        if (!c.content.parts.some((p) => p?.text)) {
+          console.warn('Model trả về rỗng. finishReason=' + c.finishReason + ' usage=' + JSON.stringify(data?.usageMetadata || {}));
+        }
       }
     }
   } catch {}
@@ -73,6 +81,10 @@ function forFallback(body) {
   const parts = b.systemInstruction?.parts;
   if (Array.isArray(parts)) parts.push({ text: NO_ANALYSIS });
   else b.systemInstruction = { parts: [{ text: NO_ANALYSIS }] };
+  // Gemma "nghĩ" trước khi trả lời và phần nghĩ cũng tốn token. Nếu giới hạn quá nhỏ (vd 180)
+  // thì hết token trước khi tới câu trả lời -> client nhận rỗng. Nới trần để còn chỗ cho câu trả lời.
+  const gc = (b.generationConfig = b.generationConfig || {});
+  gc.maxOutputTokens = Math.min(1500, Math.max(900, (gc.maxOutputTokens || 180) * 4));
   return b;
 }
 
@@ -100,6 +112,7 @@ async function tryModel(modelUrl, raw, start) {
   let lastStatus = 502;
   let lastData = { error: { message: 'Không thể kết nối Gemini.' } };
   let saw429 = false;
+  let n429 = 0;
 
   for (const i of tryOrder) {
     const remaining = TOTAL_BUDGET_MS - (Date.now() - start);
@@ -159,7 +172,7 @@ async function tryModel(modelUrl, raw, start) {
         JSON.stringify(debugInfo, null, 2)
       );
 
-      if (response.status === 429) saw429 = true;
+      if (response.status === 429) { saw429 = true; n429++; }
       st.cooldownUntil[i] = Date.now() + cooldownFor(response.status);
       lastStatus = response.status;
       lastData = data;
@@ -185,7 +198,7 @@ async function tryModel(modelUrl, raw, start) {
     }
   }
 
-  return { done: false, lastStatus, lastData, saw429 };
+  return { done: false, lastStatus, lastData, saw429, n429 };
 }
 
 export const config = { maxDuration: 30 };
@@ -216,9 +229,17 @@ export default async function handler(req, res) {
     const start = Date.now();
 
     // Bước 1: ưu tiên Gemini, xoay vòng qua các key
-    const primary = await tryModel(PRIMARY_MODEL_URL, raw, start);
-    if (primary.done) {
-      return res.status(primary.status).json(primary.data);
+    let primary = { done: false, saw429: false };
+    if (Date.now() >= primarySkipUntil) {
+      primary = await tryModel(PRIMARY_MODEL_URL, raw, start);
+      if (primary.done) {
+        primarySkipUntil = 0;
+        return res.status(primary.status).json(primary.data);
+      }
+      if (primary.n429 >= KEYS.length) {
+        primarySkipUntil = Date.now() + PRIMARY_SKIP_MS;
+        console.warn('Cả ' + KEYS.length + ' key Gemini đều hết quota, bỏ qua Gemini 30 phút và chạy thẳng Gemma.');
+      }
     }
 
     // Bước 2: tất cả key Gemini đều lỗi -> mới chuyển sang Gemma
