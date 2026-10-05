@@ -76,7 +76,9 @@ function stripThoughts(data) {
 const NO_ANALYSIS =
   'QUAN TRỌNG: Chỉ viết đúng câu trả lời cuối cùng bằng tiếng Việt. Tuyệt đối không phân tích, không liệt kê gạch đầu dòng, không viết tiếng Anh, không nhắc lại vai/bối cảnh/yêu cầu.';
 
-function forFallback(body) {
+let gemmaThinkRejected = false; // nhớ nếu Gemma không nhận lệnh tắt suy nghĩ
+
+function forFallback(body, noThink) {
   const b = JSON.parse(JSON.stringify(body || {}));
   const parts = b.systemInstruction?.parts;
   if (Array.isArray(parts)) parts.push({ text: NO_ANALYSIS });
@@ -84,7 +86,14 @@ function forFallback(body) {
   // Gemma "nghĩ" trước khi trả lời và phần nghĩ cũng tốn token. Nếu giới hạn quá nhỏ (vd 180)
   // thì hết token trước khi tới câu trả lời -> client nhận rỗng. Nới trần để còn chỗ cho câu trả lời.
   const gc = (b.generationConfig = b.generationConfig || {});
-  gc.maxOutputTokens = Math.min(1500, Math.max(900, (gc.maxOutputTokens || 180) * 4));
+  const orig = gc.maxOutputTokens || 180;
+  if (noThink) {
+    // Thử tắt "suy nghĩ" cho nhanh (Gemma suy nghĩ lâu dễ quá 8 giây).
+    gc.thinkingConfig = { thinkingBudget: 0 };
+    gc.maxOutputTokens = Math.max(orig * 2, 360);
+  } else {
+    gc.maxOutputTokens = Math.min(1500, Math.max(900, orig * 4));
+  }
   return b;
 }
 
@@ -244,7 +253,16 @@ export default async function handler(req, res) {
 
     // Bước 2: tất cả key Gemini đều lỗi -> mới chuyển sang Gemma
     console.warn('Tất cả key Gemini đều lỗi, chuyển sang gemma-4-26b-a4b-it.');
-    const fallback = await tryModel(FALLBACK_MODEL_URL, JSON.stringify(forFallback(body)), start);
+    let fallback = await tryModel(FALLBACK_MODEL_URL, JSON.stringify(forFallback(body, !gemmaThinkRejected)), start);
+    if (
+      fallback.done && fallback.status === 400 && !gemmaThinkRejected &&
+      /think/i.test(String(fallback.data?.error?.message || ''))
+    ) {
+      // Gemma không nhận lệnh tắt suy nghĩ -> nhớ lại và gửi lại bản không có lệnh đó
+      gemmaThinkRejected = true;
+      console.warn('Gemma không hỗ trợ thinkingConfig, gửi lại không có.');
+      fallback = await tryModel(FALLBACK_MODEL_URL, JSON.stringify(forFallback(body, false)), start);
+    }
     if (fallback.done) {
       return res.status(fallback.status).json(fallback.data);
     }
