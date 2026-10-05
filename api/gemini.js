@@ -21,6 +21,7 @@ function loadKeys() {
 
 const KEYS = loadKeys();
 console.log(`Gemini: đã nạp ${KEYS.length} API key`);
+console.log(`[GEMINI CONFIG] model=${MODEL_URL} keys=${KEYS.length}`);
 
 // Trạng thái lưu trong bộ nhớ của instance đang chạy (best-effort trên serverless)
 let cursor = 0; // key sẽ bắt đầu ở request kế tiếp (xoay vòng)
@@ -116,12 +117,44 @@ export default async function handler(req, res) {
           return res.status(response.status).json(data);
         }
 
-        // Key này lỗi -> ghi nhận rồi thử key kế tiếp
+        // DEBUG CHI TIẾT: ghi lại nguyên nhân Gemini trả lỗi nhưng KHÔNG ghi API key.
+        // Hữu ích để xác định 429 là RPM / TPM / RPD / RESOURCE_EXHAUSTED / quota khác.
+        const retryAfter = response.headers.get('retry-after');
+        const quotaProject = data?.error?.details?.find?.(
+          (d) => d?.['@type']?.includes?.('QuotaFailure')
+        );
+        const quotaViolations = quotaProject?.violations || [];
+        const errorInfo = data?.error?.details?.find?.(
+          (d) => d?.['@type']?.includes?.('ErrorInfo')
+        );
+        const debugInfo = {
+          key: `#${i + 1}/${n}`,
+          httpStatus: response.status,
+          status: data?.error?.status || null,
+          message: data?.error?.message || null,
+          retryAfter: retryAfter || null,
+          errorInfo: errorInfo || null,
+          quotaViolations: quotaViolations,
+          details: data?.error?.details || [],
+          model: MODEL_URL
+        };
+
+        console.error(
+          '[GEMINI DEBUG]',
+          JSON.stringify(debugInfo, null, 2)
+        );
+
         if (response.status === 429) saw429 = true;
         cooldownUntil[i] = Date.now() + cooldownFor(response.status);
         lastStatus = response.status;
         lastData = data;
-        console.warn(`Gemini key #${i + 1}/${n} lỗi HTTP ${response.status}, chuyển key tiếp theo`);
+
+        console.warn(
+          `Gemini key #${i + 1}/${n} lỗi HTTP ${response.status}. ` +
+          `status=${data?.error?.status || 'unknown'} ` +
+          `retryAfter=${retryAfter || 'none'} ` +
+          `message=${data?.error?.message || 'unknown'}`
+        );
       } catch (error) {
         cooldownUntil[i] = Date.now() + cooldownFor(500);
         lastStatus = error?.name === 'AbortError' ? 504 : 500;
