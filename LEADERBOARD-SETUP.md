@@ -21,7 +21,7 @@ Vào Project → Settings → Environment Variables:
 - Mỗi người chỉ giữ thành tích tốt nhất ở từng màn.
 - BXH xếp từ thời gian thấp → cao.
 - Màn khác nhau có BXH riêng.
-- Trang BXH tự cập nhật khoảng 5 giây/lần và dùng Supabase Realtime khi cấu hình Realtime hoạt động.
+- Trang BXH chỉ tải 1 lần khi mở (hoặc đổi màn), sau đó cập nhật hoàn toàn bằng Supabase Realtime — không còn polling định kỳ.
 - Nếu Supabase chưa cấu hình, game vẫn chơi bình thường; chỉ tính năng BXH online không hoạt động.
 
 ## 4. Chống gian lận cơ bản
