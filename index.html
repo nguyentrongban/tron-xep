@@ -153,7 +153,7 @@ function nearestSafeM2(x,y,r=22){
     const d=Math.hypot(c[0]-x,c[1]-y);
     if(d<bd&&clear(c[0],c[1],r)){bd=d;best=c}
   }
-  return best||[700,360];
+  return best||[700,336];
 }
 function repairM2Entities(){
   if(!G||!M2_ACTIVE)return;
@@ -305,6 +305,9 @@ function newGame(lv){const cf=cfg(lv),ST=(lv==2?[700,336]:WSTART[cf.st]);setScen
 P:{x:ST[0],y:ST[1],vx:0,vy:0,fl:false,mv:0},bosses:[],cups:[],docs:[],npcs:[],dc:0,cf,st:ST,sw:0,msgD:-9};
 for(let i=0;i<cf.nb;i++)G.bosses.push(mkBoss(i,cf.hawk0&&i==cf.nb-1));
 if(lv==2){
+  // Màn 2 không khóa điều khiển bằng đoạn hội thoại mở màn; người chơi có thể di chuyển ngay.
+  G.cs=null;G.sp.ph='work';
+  for(const b of G.bosses){b.mode='patrol';b.path=[];b.stun=0;b.freeze=0;b.wait=.6}
   const ps=nearestSafeM2(G.P.x,G.P.y,M2_PLAYER_R);G.P.x=ps[0];G.P.y=ps[1];
   for(const b of G.bosses){const bs=nearestSafeM2(b.x,b.y,M2_BOSS_R);b.x=bs[0];b.y=bs[1];b.path=[]}
 }
