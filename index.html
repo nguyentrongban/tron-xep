@@ -100,14 +100,7 @@ const inWR=(x,y)=>x>=WR.x0&&x<=WR.x1&&y>=WR.y0&&y<=WR.y1;
 const CUPS=[[420,262],[690,325],[300,200],[1000,380],[900,655],[600,565],[1190,700],[820,262]];
 const GS=4,GW=344,GH=192;let solid=new Uint8Array(GW*GH);const solidO=solid;
 WALLS.concat(FURN).forEach(([x,y,w,hh])=>{for(let j=y/GS|0;j<Math.ceil((y+hh)/GS);j++)for(let i=x/GS|0;i<Math.ceil((x+w)/GS);i++)if(i>=0&&j>=0&&i<GW&&j<GH)solid[j*GW+i]=1});
-const hit=(x,y)=>{
-  if(x<0||y<0||x>=W||y>=H)return true;
-  if(typeof M2_ACTIVE!=='undefined'&&M2_ACTIVE){
-    const gx=Math.floor(x/M2_GS),gy=Math.floor(y/M2_GS);
-    return gx<0||gy<0||gx>=M2_GW||gy>=M2_GH||solidM2[gy*M2_GW+gx]===1;
-  }
-  return solid[(y/GS|0)*GW+(x/GS|0)]===1;
-};
+const hit=(x,y)=>x<0||y<0||x>=W||y>=H||solid[(y/GS|0)*GW+(x/GS|0)]===1;
 const PTS=[...Array(8)].map((_,i)=>[Math.cos(i*.785),Math.sin(i*.785)]);
 const clear=(x,y,r)=>!hit(x,y)&&PTS.every(([a,b])=>!hit(x+a*r,y+b*r));
 const M2=new Image();M2.src="map2-office.jpg";
@@ -140,30 +133,17 @@ const M2_OBS=[
   [1235,145,18,150],[1365,145,18,150]
 ].map(([x,y,w,h])=>[x*M2_SX,y*M2_SY,w*M2_SX,h*M2_SY]);
 const M2_HIDE=M2_OBS.filter((_,i)=>![0,1,2,3,8,9,10,32,33].includes(i));
-const M2_GS=2,M2_GW=M2_W/M2_GS,M2_GH=M2_H/M2_GS;
-let solidM2=new Uint8Array(M2_GW*M2_GH);
+let solidM2=new Uint8Array(GW*GH);
 // Map 2 dùng MASK đen/trắng: TRẮNG = vật cản, ĐEN = đường đi.
 // Không dùng các rectangle M2_OBS làm collision runtime vì chúng có thể chặn nhầm đường trống.
 // Fallback ban đầu chỉ là biên map để nhân vật không bao giờ bị spawn trong một khối collision giả.
-for(let j=0;j<M2_GH;j++)for(let i=0;i<M2_GW;i++){
-  if(i===0||j===0||i===M2_GW-1||j===M2_GH-1)solidM2[j*M2_GW+i]=1;
+for(let j=0;j<GH;j++)for(let i=0;i<GW;i++){
+  if(i===0||j===0||i===GW-1||j===GH-1)solidM2[j*GW+i]=1;
 }
 let M2COL_READY=false;
 const M2COL=new Image();
-function nearestM2SafePoint(x,y){
-  if(clear(x,y,M2_PLAYER_R))return[x,y];
-  const max=720;
-  for(let d=4;d<=max;d+=4){
-    for(let a=0;a<Math.PI*2;a+=Math.PI/12){
-      const qx=clamp(x+Math.cos(a)*d,4,W-4),qy=clamp(y+Math.sin(a)*d,4,H-4);
-      if(clear(qx,qy,M2_PLAYER_R))return[qx,qy];
-    }
-  }
-  return[700,336];
-}
 function rebuildM2Nav(){
-  const st=nearestM2SafePoint(700*M2_SX,360*M2_SY);
-  NAVM2=buildNav(solidM2,st,M2_PLAYER_R);
+  NAVM2=buildNav(solidM2,[700,360],M2_PLAYER_R);
   walk=NAVM2.walk; reach=NAVM2.reach; solid=solidM2;
 }
 function nearestSafeM2(x,y,r=22){
@@ -173,7 +153,7 @@ function nearestSafeM2(x,y,r=22){
     const d=Math.hypot(c[0]-x,c[1]-y);
     if(d<bd&&clear(c[0],c[1],r)){bd=d;best=c}
   }
-  return best||nearestM2SafePoint(700*M2_SX,360*M2_SY);
+  return best||[700,360];
 }
 function repairM2Entities(){
   if(!G||!M2_ACTIVE)return;
@@ -185,31 +165,36 @@ function repairM2Entities(){
   }
 }
 M2COL.onload=()=>{
-  // Read the mask at its native 1408x768 resolution. No 1376px intermediate scaling.
-  const c=document.createElement('canvas'); c.width=M2_W; c.height=M2_H;
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
   const cx=c.getContext('2d',{willReadFrequently:true});
-  cx.clearRect(0,0,M2_W,M2_H); cx.drawImage(M2COL,0,0,M2_W,M2_H);
-  const d=cx.getImageData(0,0,M2_W,M2_H).data;
-  solidM2=new Uint8Array(M2_GW*M2_GH);
-  // 2x2 occupancy: at least half of the tiny cell must be white.
-  // This removes the old false-collision problem where one stray white pixel blocked a 4x4 cell.
-  for(let gy=0;gy<M2_GH;gy++)for(let gx=0;gx<M2_GW;gx++){
-    let white=0,total=0;
-    for(let yy=gy*M2_GS;yy<gy*M2_GS+M2_GS;yy++)for(let xx=gx*M2_GS;xx<gx*M2_GS+M2_GS;xx++){
-      const k=(yy*M2_W+xx)*4,totalPx=1; total+=totalPx;
-      if(d[k+3]>10&&d[k]>235&&d[k+1]>235&&d[k+2]>235)white++;
+  cx.clearRect(0,0,W,H); cx.drawImage(M2COL,0,0,W,H);
+  const d=cx.getImageData(0,0,W,H).data;
+  solidM2=new Uint8Array(GW*GH);
+  // Lấy mẫu theo ô 4x4. Chỉ pixel gần trắng mới là vật cản; nền đen luôn đi được.
+  for(let gy=0;gy<GH;gy++){
+    for(let gx=0;gx<GW;gx++){
+      let blocked=false;
+      const x0=gx*GS,y0=gy*GS;
+      for(let yy=y0;yy<Math.min(y0+GS,H)&&!blocked;yy++){
+        for(let xx=x0;xx<Math.min(x0+GS,W);xx++){
+          const k=(yy*W+xx)*4;
+          const r=d[k],g=d[k+1],b=d[k+2],a=d[k+3];
+          if(a>10&&r>210&&g>210&&b>210){blocked=true;break}
+        }
+      }
+      if(blocked)solidM2[gy*GW+gx]=1;
     }
-    if(white>=2)solidM2[gy*M2_GW+gx]=1;
   }
-  for(let i=0;i<M2_GW;i++){solidM2[i]=1;solidM2[(M2_GH-1)*M2_GW+i]=1}
-  for(let j=0;j<M2_GH;j++){solidM2[j*M2_GW]=1;solidM2[j*M2_GW+M2_GW-1]=1}
+  // Luôn khóa biên để nhân vật không lọt ra ngoài ảnh.
+  for(let i=0;i<GW;i++){solidM2[i]=1;solidM2[(GH-1)*GW+i]=1}
+  for(let j=0;j<GH;j++){solidM2[j*GW]=1;solidM2[j*GW+GW-1]=1}
   M2COL_READY=true;
   if(M2_ACTIVE){rebuildM2Nav();repairM2Entities()}
 };
 M2COL.onerror=()=>console.warn('[MAP2] Không tải được map2-collision.png; chỉ dùng biên map tạm thời.');
 M2COL.src='map2-collision.png';
 // Bán kính collision sát thân nhân vật, tránh khóa hành lang nhưng vẫn ngăn xuyên đồ vật.
-const M2_PLAYER_R=12,M2_BOSS_R=11;
+const M2_PLAYER_R=18,M2_BOSS_R=17;
 const PC=16,PW=86,PH=48;let walk=new Uint8Array(PW*PH),reach=[];
 for(let j=0;j<PH;j++)for(let i=0;i<PW;i++)walk[j*PW+i]=clear(i*PC+8,j*PC+8,10)?1:0;
 const D8=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
@@ -320,9 +305,6 @@ function newGame(lv){const cf=cfg(lv),ST=(lv==2?[700,336]:WSTART[cf.st]);setScen
 P:{x:ST[0],y:ST[1],vx:0,vy:0,fl:false,mv:0},bosses:[],cups:[],docs:[],npcs:[],dc:0,cf,st:ST,sw:0,msgD:-9};
 for(let i=0;i<cf.nb;i++)G.bosses.push(mkBoss(i,cf.hawk0&&i==cf.nb-1));
 if(lv==2){
-  // Màn 2 không khóa điều khiển bằng đoạn hội thoại mở màn; người chơi có thể di chuyển ngay.
-  G.cs=null;G.sp.ph='work';
-  for(const b of G.bosses){b.mode='patrol';b.path=[];b.stun=0;b.freeze=0;b.wait=.6}
   const ps=nearestSafeM2(G.P.x,G.P.y,M2_PLAYER_R);G.P.x=ps[0];G.P.y=ps[1];
   for(const b of G.bosses){const bs=nearestSafeM2(b.x,b.y,M2_BOSS_R);b.x=bs[0];b.y=bs[1];b.path=[]}
 }
