@@ -134,8 +134,8 @@ const M2_OBS=[
 ].map(([x,y,w,h])=>[x*M2_SX,y*M2_SY,w*M2_SX,h*M2_SY]);
 const M2_HIDE=M2_OBS.filter((_,i)=>![0,1,2,3,8,9,10,32,33].includes(i));
 let solidM2=new Uint8Array(GW*GH);
-// Fallback collision cũ chỉ dùng trong vài mili-giây đầu nếu ảnh mask chưa tải.
-M2_OBS.forEach(([x,y,w,h])=>{for(let j=y/GS|0;j<Math.ceil((y+h)/GS);j++)for(let i=x/GS|0;i<Math.ceil((x+w)/GS);i++)if(i>=0&&j>=0&&i<GW&&j<GH)solidM2[j*GW+i]=1});
+// Fallback chỉ khóa biên map trong lúc ảnh collision tải; không dùng các rectangle cũ để tránh vật cản vô hình.
+for(let j=0;j<GH;j++)for(let i=0;i<GW;i++){if(i<2||j<2||i>=GW-2||j>=GH-2)solidM2[j*GW+i]=1;}
 // Collision thật của Map 2 lấy trực tiếp từ ảnh đen-trên-xám do người dùng cung cấp.
 // Không còn dùng các rectangle lớn để chặn đường trống.
 let M2COL_READY=false;
@@ -163,21 +163,29 @@ M2COL.onload=()=>{
   M2COL_READY=true;
   NAVM2=null;
   if(M2_ACTIVE){
-    NAVM2=buildNav(solidM2,[700,336],M2_PLAYER_R);
+    NAVM2=buildNav(solidM2,[650,360],M2_PLAYER_R);
     walk=NAVM2.walk; reach=NAVM2.reach; solid=solidM2;
     // Chỉ Map 2: nếu spawn cũ rơi đúng lên vật cản, đẩy tới ô đi được gần nhất.
     if(G&&G.lv==2){
-      const safe=(x,y)=>{
-        const i=clamp(x/PC|0,0,PW-1),j=clamp(y/PC|0,0,PH-1);
-        const q=nearestCell(i,j);
-        return [q[0]*PC+8,q[1]*PC+8];
+      const safe=(x,y,r)=>{
+        let best=null,bd=1e9;
+        const sx=clamp(x/PC|0,0,PW-1), sy=clamp(y/PC|0,0,PH-1);
+        for(let rr=0;rr<18;rr++){
+          for(let a=-rr;a<=rr;a++)for(let b=-rr;b<=rr;b++){
+            const gx=sx+a,gy=sy+b; if(gx<0||gy<0||gx>=PW||gy>=PH)continue;
+            const px=gx*PC+8,py=gy*PC+8;
+            if(clear(px,py,r)){const d=Math.hypot(px-x,py-y);if(d<bd){bd=d;best=[px,py]}}
+          }
+          if(best)break;
+        }
+        return best||[650,360];
       };
       if(!clear(G.P.x,G.P.y,M2_PLAYER_R)){
-        const p=safe(G.P.x,G.P.y);G.P.x=p[0];G.P.y=p[1];
+        const p=safe(G.P.x,G.P.y,M2_PLAYER_R);G.P.x=p[0];G.P.y=p[1];
       }
       for(const b of G.bosses){
         if(!clear(b.x,b.y,M2_BOSS_R)){
-          const p=safe(b.x,b.y);b.x=p[0];b.y=p[1];
+          const p=safe(b.x,b.y,M2_BOSS_R);b.x=p[0];b.y=p[1];
         }
       }
     }
@@ -186,7 +194,7 @@ M2COL.onload=()=>{
 M2COL.onerror=()=>console.warn('[MAP2] Không tải được map2-collision.png, dùng fallback.');
 M2COL.src='map2-collision.png';
 // Collision theo chân nhân vật, đủ rộng để không chồng đồ nhưng không khóa các cửa/hành lang.
-const M2_PLAYER_R=22,M2_BOSS_R=20;
+const M2_PLAYER_R=12,M2_BOSS_R=12;
 const PC=16,PW=86,PH=48;let walk=new Uint8Array(PW*PH),reach=[];
 for(let j=0;j<PH;j++)for(let i=0;i<PW;i++)walk[j*PW+i]=clear(i*PC+8,j*PC+8,10)?1:0;
 const D8=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
@@ -204,7 +212,7 @@ const solidX=new Uint8Array(GW*GH);OBX.map(sr).forEach(([x,y,w,hh])=>{for(let j=
 function buildNav(sol,st,rad=10){const sv=solid;solid=sol;const w=new Uint8Array(PW*PH),r=[];for(let j=0;j<PH;j++)for(let i=0;i<PW;i++)w[j*PW+i]=clear(i*PC+8,j*PC+8,rad)?1:0;
 const seen=new Uint8Array(PW*PH),q=[(st[1]/PC|0)*PW+(st[0]/PC|0)];seen[q[0]]=1;for(let n=0;n<q.length;n++){const c=q[n],ci=c%PW,cj=c/PW|0;for(const[a,b]of D8.slice(0,4)){const x=ci+a,y=cj+b,k=y*PW+x;if(x>=0&&y>=0&&x<PW&&y<PH&&w[k]&&!seen[k]){seen[k]=1;q.push(k)}}}q.forEach(c=>r.push([(c%PW)*PC+8,(c/PW|0)*PC+8]));solid=sv;return{walk:w,reach:r}}
 const NAVO={walk,reach};let NAVX=null,NAVM2=null,M2_ACTIVE=false;
-function setScene(s,lv=0){if(s=='out'){M2_ACTIVE=false;NAVX=NAVX||buildNav(solidX,OUT.start);solid=solidX;walk=NAVX.walk;reach=NAVX.reach}else if(Number(lv)==2){M2_ACTIVE=true;NAVM2=NAVM2||buildNav(solidM2,[700,360],M2_PLAYER_R);solid=solidM2;walk=NAVM2.walk;reach=NAVM2.reach}else{M2_ACTIVE=false;solid=solidO;walk=NAVO.walk;reach=NAVO.reach}}
+function setScene(s,lv=0){if(s=='out'){M2_ACTIVE=false;NAVX=NAVX||buildNav(solidX,OUT.start);solid=solidX;walk=NAVX.walk;reach=NAVX.reach}else if(Number(lv)==2){M2_ACTIVE=true;NAVM2=NAVM2||buildNav(solidM2,[650,360],M2_PLAYER_R);solid=solidM2;walk=NAVM2.walk;reach=NAVM2.reach}else{M2_ACTIVE=false;solid=solidO;walk=NAVO.walk;reach=NAVO.reach}}
 // --- Cuộc gọi của shipper (trong lúc đang trốn sếp) ---
 function throwIt(){const g=G;if(!g||g.over||g.pause||g.cs||g.tr||!UI.playing||g.hid)return;if((g.thr||0)<=0){toast('Hết đồ để ném! Nhặt ☕ để có thêm',1400);return}
 const P=g.P,m=Math.hypot(P.vx,P.vy);let dx=m>20?P.vx/m:(P.fl?-1:1),dy=m>20?P.vy/m:0,tx=P.x,ty=P.y;for(let d=220;d>=40;d-=20){const x=P.x+dx*d,y=P.y+dy*d;if(clear(x,y,6)){tx=x;ty=y;break}}
@@ -293,7 +301,7 @@ LV.push({n:'Tiệc sinh nhật bất ngờ',d:'Cả phòng tụ tập, chen qua 
 function cfg(lv){if(CALX)return{...CALX};const c={...LV[clamp(lv,1,LV.length)-1]};c.spd*=1+.015*lv;if(c.key==null)c.key=lv>1&&!c.docs&&!c.limit?1:0;return c}
 let G=null;const IN={x:0,y:0,run:false},K={},UI={playing:false};
 function mkBoss(i,hawk){const c=randIn(G.st[0],G.st[1],240);return{x:c[0],y:c[1],ang:rnd(6.28),path:[],mode:'patrol',wait:.4,look:0,freeze:0,stun:0,rp:0,lost:0,sens:3+rnd(3),noise:0,last:null,hawk:!!hawk,col:i?'#2f5d8a':'#9b2335'}}
-function newGame(lv){const cf=cfg(lv),ST=(lv==2?[700,336]:WSTART[cf.st]);setScene('office',lv);G={sc:'office',nearB:-1,thr:3,kc:0,called:0,tr:null,snap:0,lv,t:0,lives:3+S.up.life,sus:0,stam:100+15*S.up.stam,mx:100+15*S.up.stam,gc:0,hint:0,pause:false,esc:0,hid:false,hidT:0,hidCd:0,fake:0,fakeCd:0,dark:0,dk:cf.dark?1:0,sp:{ph:lv==2?'work':'intro'},lt:0,tw:0,h2:0,bell:0,inv:0,ev:lv==1?16:9,caught:0,over:false,ex:pick([0,1]),dir:false,msgT:0,
+function newGame(lv){const cf=cfg(lv),ST=(lv==2?[650,360]:WSTART[cf.st]);setScene('office',lv);G={sc:'office',nearB:-1,thr:3,kc:0,called:0,tr:null,snap:0,lv,t:0,lives:3+S.up.life,sus:0,stam:100+15*S.up.stam,mx:100+15*S.up.stam,gc:0,hint:0,pause:false,esc:0,hid:false,hidT:0,hidCd:0,fake:0,fakeCd:0,dark:0,dk:cf.dark?1:0,sp:{ph:lv==2?'work':'intro'},lt:0,tw:0,h2:0,bell:0,inv:0,ev:lv==1?16:9,caught:0,over:false,ex:pick([0,1]),dir:false,msgT:0,
 P:{x:ST[0],y:ST[1],vx:0,vy:0,fl:false,mv:0},bosses:[],cups:[],docs:[],npcs:[],dc:0,cf,st:ST,sw:0,msgD:-9};
 for(let i=0;i<cf.nb;i++)G.bosses.push(mkBoss(i,cf.hawk0&&i==cf.nb-1));for(let i=0;i<(cf.docs||0);i++){const c=(i==0?randIn:randWalk)(ST[0],ST[1],i==0?200:500);G.docs.push({x:c[0],y:c[1],on:1})}for(let i=0;i<(cf.npcs||0);i++){const c=randIn(ST[0],ST[1],150);G.npcs.push({x:c[0],y:c[1],ang:rnd(6.28),path:[],wait:rnd(2),look:0,k:NK[i%3]})}
 CUPS.slice().sort(()=>Math.random()-.5).slice(0,3).forEach(c=>G.cups.push({x:c[0],y:c[1],on:1,t:0}));G.coins=[];for(let i=0;i<6;i++){const c=randWalk(ST[0],ST[1],i<2?150:300);G.coins.push({x:c[0],y:c[1],on:1})}{let c;for(let i=0;i<300;i++){c=pick(reach);if(!inWR(c[0],c[1])&&Math.hypot(c[0]-ST[0],c[1]-ST[1])>=400)break}G.key=cf.key?{x:c[0],y:c[1],on:1}:null}G.bosses.forEach(b=>b.stun=0);G.fr=[];G.nearF=-1;G.reveal=0;G.exc=0;(lv==1?['huong']:['huong','tuan','lan'].sort(()=>Math.random()-.5).slice(0,2)).forEach((k,ix)=>{let c;for(let i=0;i<30;i++){c=(ix==0?randIn:randWalk)(ST[0],ST[1],300);if(G.fr.every(f=>Math.hypot(f.x-c[0],f.y-c[1])>200))break}G.fr.push({k,x:c[0],y:c[1],used:0})});G.cs=lv==2?null:csMake()}
