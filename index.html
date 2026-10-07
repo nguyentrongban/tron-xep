@@ -134,37 +134,67 @@ const M2_OBS=[
 ].map(([x,y,w,h])=>[x*M2_SX,y*M2_SY,w*M2_SX,h*M2_SY]);
 const M2_HIDE=M2_OBS.filter((_,i)=>![0,1,2,3,8,9,10,32,33].includes(i));
 let solidM2=new Uint8Array(GW*GH);
-// Fallback collision cũ chỉ dùng trong vài mili-giây đầu nếu ảnh mask chưa tải.
-M2_OBS.forEach(([x,y,w,h])=>{for(let j=y/GS|0;j<Math.ceil((y+h)/GS);j++)for(let i=x/GS|0;i<Math.ceil((x+w)/GS);i++)if(i>=0&&j>=0&&i<GW&&j<GH)solidM2[j*GW+i]=1});
-// Collision thật của Map 2 lấy trực tiếp từ ảnh đen-trên-xám do người dùng cung cấp.
-// Không còn dùng các rectangle lớn để chặn đường trống.
+// Map 2 dùng MASK đen/trắng: TRẮNG = vật cản, ĐEN = đường đi.
+// Không dùng các rectangle M2_OBS làm collision runtime vì chúng có thể chặn nhầm đường trống.
+// Fallback ban đầu chỉ là biên map để nhân vật không bao giờ bị spawn trong một khối collision giả.
+for(let j=0;j<GH;j++)for(let i=0;i<GW;i++){
+  if(i===0||j===0||i===GW-1||j===GH-1)solidM2[j*GW+i]=1;
+}
 let M2COL_READY=false;
 const M2COL=new Image();
+function rebuildM2Nav(){
+  NAVM2=buildNav(solidM2,[700,360],M2_PLAYER_R);
+  walk=NAVM2.walk; reach=NAVM2.reach; solid=solidM2;
+}
+function nearestSafeM2(x,y,r=22){
+  if(clear(x,y,r))return[x,y];
+  let best=null,bd=Infinity;
+  for(const c of reach){
+    const d=Math.hypot(c[0]-x,c[1]-y);
+    if(d<bd&&clear(c[0],c[1],r)){bd=d;best=c}
+  }
+  return best||[700,360];
+}
+function repairM2Entities(){
+  if(!G||!M2_ACTIVE)return;
+  const p=nearestSafeM2(G.P.x,G.P.y,M2_PLAYER_R);
+  G.P.x=p[0];G.P.y=p[1];G.P.vx=G.P.vy=0;
+  for(const b of G.bosses){
+    const q=nearestSafeM2(b.x,b.y,M2_BOSS_R);
+    b.x=q[0];b.y=q[1];b.vx=b.vy=0;b.path=[];
+  }
+}
 M2COL.onload=()=>{
   const c=document.createElement('canvas'); c.width=W; c.height=H;
   const cx=c.getContext('2d',{willReadFrequently:true});
   cx.clearRect(0,0,W,H); cx.drawImage(M2COL,0,0,W,H);
   const d=cx.getImageData(0,0,W,H).data;
   solidM2=new Uint8Array(GW*GH);
-  for(let y=0;y<H;y++){
-    const gy=(y/GS)|0;
-    for(let x=0;x<W;x++){
-      if(d[(y*W+x)*4]>128){
-        solidM2[gy*GW+((x/GS)|0)]=1;
+  // Lấy mẫu theo ô 4x4. Chỉ pixel gần trắng mới là vật cản; nền đen luôn đi được.
+  for(let gy=0;gy<GH;gy++){
+    for(let gx=0;gx<GW;gx++){
+      let blocked=false;
+      const x0=gx*GS,y0=gy*GS;
+      for(let yy=y0;yy<Math.min(y0+GS,H)&&!blocked;yy++){
+        for(let xx=x0;xx<Math.min(x0+GS,W);xx++){
+          const k=(yy*W+xx)*4;
+          const r=d[k],g=d[k+1],b=d[k+2],a=d[k+3];
+          if(a>10&&r>210&&g>210&&b>210){blocked=true;break}
+        }
       }
+      if(blocked)solidM2[gy*GW+gx]=1;
     }
   }
+  // Luôn khóa biên để nhân vật không lọt ra ngoài ảnh.
+  for(let i=0;i<GW;i++){solidM2[i]=1;solidM2[(GH-1)*GW+i]=1}
+  for(let j=0;j<GH;j++){solidM2[j*GW]=1;solidM2[j*GW+GW-1]=1}
   M2COL_READY=true;
-  NAVM2=null;
-  if(M2_ACTIVE){
-    NAVM2=buildNav(solidM2,[700,360],M2_PLAYER_R);
-    walk=NAVM2.walk; reach=NAVM2.reach; solid=solidM2;
-  }
+  if(M2_ACTIVE){rebuildM2Nav();repairM2Entities()}
 };
-M2COL.onerror=()=>console.warn('[MAP2] Không tải được map2-collision.png, dùng fallback.');
+M2COL.onerror=()=>console.warn('[MAP2] Không tải được map2-collision.png; chỉ dùng biên map tạm thời.');
 M2COL.src='map2-collision.png';
-// Collision theo chân nhân vật, đủ rộng để không chồng đồ nhưng không khóa các cửa/hành lang.
-const M2_PLAYER_R=22,M2_BOSS_R=20;
+// Bán kính collision sát thân nhân vật, tránh khóa hành lang nhưng vẫn ngăn xuyên đồ vật.
+const M2_PLAYER_R=18,M2_BOSS_R=17;
 const PC=16,PW=86,PH=48;let walk=new Uint8Array(PW*PH),reach=[];
 for(let j=0;j<PH;j++)for(let i=0;i<PW;i++)walk[j*PW+i]=clear(i*PC+8,j*PC+8,10)?1:0;
 const D8=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
@@ -273,7 +303,12 @@ let G=null;const IN={x:0,y:0,run:false},K={},UI={playing:false};
 function mkBoss(i,hawk){const c=randIn(G.st[0],G.st[1],240);return{x:c[0],y:c[1],ang:rnd(6.28),path:[],mode:'patrol',wait:.4,look:0,freeze:0,stun:0,rp:0,lost:0,sens:3+rnd(3),noise:0,last:null,hawk:!!hawk,col:i?'#2f5d8a':'#9b2335'}}
 function newGame(lv){const cf=cfg(lv),ST=(lv==2?[700,336]:WSTART[cf.st]);setScene('office',lv);G={sc:'office',nearB:-1,thr:3,kc:0,called:0,tr:null,snap:0,lv,t:0,lives:3+S.up.life,sus:0,stam:100+15*S.up.stam,mx:100+15*S.up.stam,gc:0,hint:0,pause:false,esc:0,hid:false,hidT:0,hidCd:0,fake:0,fakeCd:0,dark:0,dk:cf.dark?1:0,sp:{ph:'intro'},lt:0,tw:0,h2:0,bell:0,inv:0,ev:lv==1?16:9,caught:0,over:false,ex:pick([0,1]),dir:false,msgT:0,
 P:{x:ST[0],y:ST[1],vx:0,vy:0,fl:false,mv:0},bosses:[],cups:[],docs:[],npcs:[],dc:0,cf,st:ST,sw:0,msgD:-9};
-for(let i=0;i<cf.nb;i++)G.bosses.push(mkBoss(i,cf.hawk0&&i==cf.nb-1));for(let i=0;i<(cf.docs||0);i++){const c=(i==0?randIn:randWalk)(ST[0],ST[1],i==0?200:500);G.docs.push({x:c[0],y:c[1],on:1})}for(let i=0;i<(cf.npcs||0);i++){const c=randIn(ST[0],ST[1],150);G.npcs.push({x:c[0],y:c[1],ang:rnd(6.28),path:[],wait:rnd(2),look:0,k:NK[i%3]})}
+for(let i=0;i<cf.nb;i++)G.bosses.push(mkBoss(i,cf.hawk0&&i==cf.nb-1));
+if(lv==2){
+  const ps=nearestSafeM2(G.P.x,G.P.y,M2_PLAYER_R);G.P.x=ps[0];G.P.y=ps[1];
+  for(const b of G.bosses){const bs=nearestSafeM2(b.x,b.y,M2_BOSS_R);b.x=bs[0];b.y=bs[1];b.path=[]}
+}
+for(let i=0;i<(cf.docs||0);i++){const c=(i==0?randIn:randWalk)(ST[0],ST[1],i==0?200:500);G.docs.push({x:c[0],y:c[1],on:1})}for(let i=0;i<(cf.npcs||0);i++){const c=randIn(ST[0],ST[1],150);G.npcs.push({x:c[0],y:c[1],ang:rnd(6.28),path:[],wait:rnd(2),look:0,k:NK[i%3]})}
 CUPS.slice().sort(()=>Math.random()-.5).slice(0,3).forEach(c=>G.cups.push({x:c[0],y:c[1],on:1,t:0}));G.coins=[];for(let i=0;i<6;i++){const c=randWalk(ST[0],ST[1],i<2?150:300);G.coins.push({x:c[0],y:c[1],on:1})}{let c;for(let i=0;i<300;i++){c=pick(reach);if(!inWR(c[0],c[1])&&Math.hypot(c[0]-ST[0],c[1]-ST[1])>=400)break}G.key=cf.key?{x:c[0],y:c[1],on:1}:null}G.bosses.forEach(b=>b.stun=0);G.fr=[];G.nearF=-1;G.reveal=0;G.exc=0;(lv==1?['huong']:['huong','tuan','lan'].sort(()=>Math.random()-.5).slice(0,2)).forEach((k,ix)=>{let c;for(let i=0;i<30;i++){c=(ix==0?randIn:randWalk)(ST[0],ST[1],300);if(G.fr.every(f=>Math.hypot(f.x-c[0],f.y-c[1])>200))break}G.fr.push({k,x:c[0],y:c[1],used:0})});G.cs=csMake()}
 // ===== KỊCH BẢN MỞ ĐẦU: sếp giữ lại làm, ra khỏi phòng mới bị dí =====
 // Mỗi mục là một đoạn hội thoại bong bóng trên đầu: 's' = Sếp Hùng, 'p' = bạn. Muốn thêm: chép thêm một mảng vào CS.
