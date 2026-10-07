@@ -101,7 +101,7 @@ const CUPS=[[420,262],[690,325],[300,200],[1000,380],[900,655],[600,565],[1190,7
 const GS=4,GW=344,GH=192;let solid=new Uint8Array(GW*GH);const solidO=solid;
 WALLS.concat(FURN).forEach(([x,y,w,hh])=>{for(let j=y/GS|0;j<Math.ceil((y+hh)/GS);j++)for(let i=x/GS|0;i<Math.ceil((x+w)/GS);i++)if(i>=0&&j>=0&&i<GW&&j<GH)solid[j*GW+i]=1});
 const hit=(x,y)=>x<0||y<0||x>=W||y>=H||solid[(y/GS|0)*GW+(x/GS|0)]===1;
-const PTS=[[0,0],...[...Array(16)].map((_,i)=>{const a=i*Math.PI/8;return[Math.cos(a),Math.sin(a)]})];
+const PTS=[...Array(8)].map((_,i)=>[Math.cos(i*.785),Math.sin(i*.785)]);
 const clear=(x,y,r)=>!hit(x,y)&&PTS.every(([a,b])=>!hit(x+a*r,y+b*r));
 const M2=new Image();M2.src="map2-office.jpg";
 const M2_W=1408,M2_H=768,M2_SX=W/M2_W,M2_SY=H/M2_H;
@@ -133,28 +133,37 @@ const M2_OBS=[
   [1235,145,18,150],[1365,145,18,150]
 ].map(([x,y,w,h])=>[x*M2_SX,y*M2_SY,w*M2_SX,h*M2_SY]);
 const M2_HIDE=M2_OBS.filter((_,i)=>![0,1,2,3,8,9,10,32,33].includes(i));
-// MAP 2 COLLISION: dùng mask 344x192 được dựng trực tiếp từ ảnh map 1408x768.
-// Pixel trắng trong map2-collision.png = vật cản; pixel đen = nền có thể đi.
-// Cách này bám theo hình dáng thật của bàn, ghế, tủ, cây, vách... thay vì các hitbox chữ nhật lớn.
 let solidM2=new Uint8Array(GW*GH);
-// Fallback để game vẫn chạy ngay cả khi file mask chưa tải xong.
+// Fallback collision cũ chỉ dùng trong vài mili-giây đầu nếu ảnh mask chưa tải.
 M2_OBS.forEach(([x,y,w,h])=>{for(let j=y/GS|0;j<Math.ceil((y+h)/GS);j++)for(let i=x/GS|0;i<Math.ceil((x+w)/GS);i++)if(i>=0&&j>=0&&i<GW&&j<GH)solidM2[j*GW+i]=1});
+// Collision thật của Map 2 lấy trực tiếp từ ảnh đen-trên-xám do người dùng cung cấp.
+// Không còn dùng các rectangle lớn để chặn đường trống.
+let M2COL_READY=false;
 const M2COL=new Image();
 M2COL.onload=()=>{
-  try{
-    const c=document.createElement('canvas');c.width=GW;c.height=GH;
-    const q=c.getContext('2d',{willReadFrequently:true});q.clearRect(0,0,GW,GH);q.drawImage(M2COL,0,0,GW,GH);
-    const d=q.getImageData(0,0,GW,GH).data;
-    const next=new Uint8Array(GW*GH);
-    for(let i=0;i<GW*GH;i++)next[i]=d[i*4]>200?1:0;
-    solidM2=next;
-    // Nếu đang chơi màn 2 thì đổi collision ngay, không cần reload game.
-    if(M2_ACTIVE){solid=solidM2;NAVM2=null;const n=buildNav(solidM2,[700,336],M2_PLAYER_R);walk=n.walk;reach=n.reach;NAVM2=n}
-  }catch(e){console.warn('[MAP2 COLLISION]',e)}
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const cx=c.getContext('2d',{willReadFrequently:true});
+  cx.clearRect(0,0,W,H); cx.drawImage(M2COL,0,0,W,H);
+  const d=cx.getImageData(0,0,W,H).data;
+  solidM2=new Uint8Array(GW*GH);
+  for(let y=0;y<H;y++){
+    const gy=(y/GS)|0;
+    for(let x=0;x<W;x++){
+      if(d[(y*W+x)*4]>128){
+        solidM2[gy*GW+((x/GS)|0)]=1;
+      }
+    }
+  }
+  M2COL_READY=true;
+  NAVM2=null;
+  if(M2_ACTIVE){
+    NAVM2=buildNav(solidM2,[700,360],M2_PLAYER_R);
+    walk=NAVM2.walk; reach=NAVM2.reach; solid=solidM2;
+  }
 };
-M2COL.onerror=()=>console.warn('[MAP2 COLLISION] Không tải được map2-collision.png, dùng fallback hitbox.');
+M2COL.onerror=()=>console.warn('[MAP2] Không tải được map2-collision.png, dùng fallback.');
 M2COL.src='map2-collision.png';
-// Collision theo chân nhân vật. Bán kính lớn hơn một chút so với tâm nhân vật để không chồng vật thể.
+// Collision theo chân nhân vật, đủ rộng để không chồng đồ nhưng không khóa các cửa/hành lang.
 const M2_PLAYER_R=22,M2_BOSS_R=20;
 const PC=16,PW=86,PH=48;let walk=new Uint8Array(PW*PH),reach=[];
 for(let j=0;j<PH;j++)for(let i=0;i<PW;i++)walk[j*PW+i]=clear(i*PC+8,j*PC+8,10)?1:0;
