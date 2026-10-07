@@ -105,11 +105,36 @@ const PTS=[...Array(8)].map((_,i)=>[Math.cos(i*.785),Math.sin(i*.785)]);
 const clear=(x,y,r)=>!hit(x,y)&&PTS.every(([a,b])=>!hit(x+a*r,y+b*r));
 const M2=new Image();M2.src="map2-office.jpg";
 const M2_W=1408,M2_H=768,M2_SX=W/M2_W,M2_SY=H/M2_H;
-const M2_EXIT={x:1250*M2_SX,y:160*M2_SY,w:115*M2_SX,h:140*M2_SY};
-const M2_OBS=[[0,0,280,170],[145,190,260,80],[345,110,75,145],[575,25,285,28],[575,25,28,290],[832,25,28,290],[575,295,85,25],[775,295,85,25],[640,175,120,95],[610,135,40,120],[780,135,40,120],[850,95,275,105],[1100,115,95,190],[930,210,180,90],[325,300,235,165],[430,465,190,145],[735,380,210,170],[1040,360,185,285],[0,455,310,195],[600,600,255,168],[850,600,245,168],[1080,620,150,148],[0,740,1408,28],[1380,0,28,740],[1235,145,18,150],[1365,145,15,150]].map(([x,y,w,h])=>[x*M2_SX,y*M2_SY,w*M2_SX,h*M2_SY]);
-const M2_HIDE=M2_OBS.filter((_,i)=>![0,3,4,5,6,7,22,23,24,25].includes(i));
-// Màn 2: vùng cấm có thêm khoảng đệm để sprite nhân vật ~110px không chồng pixel vào bàn ghế.
+const M2_EXIT={x:1250*M2_SX,y:145*M2_SY,w:115*M2_SX,h:150*M2_SY};
+// MÀN 2 — collision được canh theo map 1408x768. Chỉ chặn tường/đồ vật thật sự;
+// các khoảng cửa và hành lang được chừa rộng để nhân vật ~110px không bị kẹt.
+const M2_OBS=[
+  // Biên ngoài map
+  [0,0,1408,18],[0,0,18,768],[0,740,1408,28],[1390,0,18,740],
+  // Phòng góc trên trái: bàn, tủ, kệ; không chặn lối vào
+  [255,195,160,65],[335,130,85,75],[430,115,105,105],[490,245,65,80],
+  // Boss Office: kính + đồ nội thất. Chừa cửa giữa phía dưới.
+  [575,25,285,18],[575,25,18,295],[842,25,18,295],
+  [650,175,115,75],[600,125,45,120],[780,125,42,120],[620,275,60,30],[755,275,55,30],
+  // Pantry + máy bán hàng/kệ
+  [850,115,270,95],[1110,120,85,165],[965,50,80,65],[1055,55,75,65],[1135,75,60,60],
+  [850,245,35,85],[900,245,35,85],
+  // Cụm máy in/tủ giữa: cắt gọn, chừa hành lang hai bên
+  [350,345,110,110],[470,330,75,60],[440,495,95,100],[545,470,35,120],
+  // Bàn họp giữa
+  [745,400,190,130],
+  // Dãy bàn ghế bên phải — chừa hành lang phía trên để đi tới EXIT
+  [1120,380,45,250],[1045,390,75,235],[1165,385,65,245],[1235,380,45,250],
+  // Phòng dưới trái: chỉ chặn bàn ghế, không khóa cửa phòng
+  [55,515,110,90],[170,510,80,90],
+  // Sofa và bàn dưới: chừa khe đi ở giữa
+  [630,620,225,110],[900,615,195,125],
+  // Khung cửa EXIT — phần giữa vẫn để trống để đi qua
+  [1235,145,18,150],[1365,145,18,150]
+].map(([x,y,w,h])=>[x*M2_SX,y*M2_SY,w*M2_SX,h*M2_SY]);
+const M2_HIDE=M2_OBS.filter((_,i)=>![0,1,2,3,8,9,10,32,33].includes(i));
 const solidM2=new Uint8Array(GW*GH);M2_OBS.forEach(([x,y,w,h])=>{for(let j=y/GS|0;j<Math.ceil((y+h)/GS);j++)for(let i=x/GS|0;i<Math.ceil((x+w)/GS);i++)if(i>=0&&j>=0&&i<GW&&j<GH)solidM2[j*GW+i]=1});
+// Collision theo chân nhân vật, đủ rộng để không chồng đồ nhưng không khóa các cửa/hành lang.
 const M2_PLAYER_R=22,M2_BOSS_R=20;
 const PC=16,PW=86,PH=48;let walk=new Uint8Array(PW*PH),reach=[];
 for(let j=0;j<PH;j++)for(let i=0;i<PW;i++)walk[j*PW+i]=clear(i*PC+8,j*PC+8,10)?1:0;
@@ -128,7 +153,7 @@ const solidX=new Uint8Array(GW*GH);OBX.map(sr).forEach(([x,y,w,hh])=>{for(let j=
 function buildNav(sol,st,rad=10){const sv=solid;solid=sol;const w=new Uint8Array(PW*PH),r=[];for(let j=0;j<PH;j++)for(let i=0;i<PW;i++)w[j*PW+i]=clear(i*PC+8,j*PC+8,rad)?1:0;
 const seen=new Uint8Array(PW*PH),q=[(st[1]/PC|0)*PW+(st[0]/PC|0)];seen[q[0]]=1;for(let n=0;n<q.length;n++){const c=q[n],ci=c%PW,cj=c/PW|0;for(const[a,b]of D8.slice(0,4)){const x=ci+a,y=cj+b,k=y*PW+x;if(x>=0&&y>=0&&x<PW&&y<PH&&w[k]&&!seen[k]){seen[k]=1;q.push(k)}}}q.forEach(c=>r.push([(c%PW)*PC+8,(c/PW|0)*PC+8]));solid=sv;return{walk:w,reach:r}}
 const NAVO={walk,reach};let NAVX=null,NAVM2=null,M2_ACTIVE=false;
-function setScene(s,lv=0){if(s=='out'){M2_ACTIVE=false;NAVX=NAVX||buildNav(solidX,OUT.start);solid=solidX;walk=NAVX.walk;reach=NAVX.reach}else if(Number(lv)==2){M2_ACTIVE=true;NAVM2=NAVM2||buildNav(solidM2,[700,336],M2_PLAYER_R);solid=solidM2;walk=NAVM2.walk;reach=NAVM2.reach}else{M2_ACTIVE=false;solid=solidO;walk=NAVO.walk;reach=NAVO.reach}}
+function setScene(s,lv=0){if(s=='out'){M2_ACTIVE=false;NAVX=NAVX||buildNav(solidX,OUT.start);solid=solidX;walk=NAVX.walk;reach=NAVX.reach}else if(Number(lv)==2){M2_ACTIVE=true;NAVM2=NAVM2||buildNav(solidM2,[700,360],M2_PLAYER_R);solid=solidM2;walk=NAVM2.walk;reach=NAVM2.reach}else{M2_ACTIVE=false;solid=solidO;walk=NAVO.walk;reach=NAVO.reach}}
 // --- Cuộc gọi của shipper (trong lúc đang trốn sếp) ---
 function throwIt(){const g=G;if(!g||g.over||g.pause||g.cs||g.tr||!UI.playing||g.hid)return;if((g.thr||0)<=0){toast('Hết đồ để ném! Nhặt ☕ để có thêm',1400);return}
 const P=g.P,m=Math.hypot(P.vx,P.vy);let dx=m>20?P.vx/m:(P.fl?-1:1),dy=m>20?P.vy/m:0,tx=P.x,ty=P.y;for(let d=220;d>=40;d-=20){const x=P.x+dx*d,y=P.y+dy*d;if(clear(x,y,6)){tx=x;ty=y;break}}
