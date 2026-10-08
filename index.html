@@ -645,7 +645,7 @@ useEffect(()=>{if(scr!='leaderboard')return;loadLeaderboard(lbLevel);let dead=fa
 (async()=>{try{const c=await fetch('/api/leaderboard?config=1').then(r=>r.ok?r.json():null);if(dead||!c||!window.supabase?.createClient)return;const sb=window.supabase.createClient(c.url,c.anonKey);lbChannel.current=sb.channel('tsc-bxh-'+lbLevel).on('postgres_changes',{event:'*',schema:'public',table:'leaderboard',filter:'level=eq.'+lbLevel},()=>loadLeaderboard(lbLevel)).subscribe()}catch(e){}})();
 return()=>{dead=true;if(lbChannel.current){try{lbChannel.current.unsubscribe()}catch(e){}lbChannel.current=null}}},[scr,lbLevel]);
 
-const LOT={shop:'https://cdn.jsdelivr.net/gh/useAnimations/react-useanimations@master/src/lib/folder/folder.json',friends:'https://cdn.jsdelivr.net/gh/useAnimations/react-useanimations@master/src/lib/userPlus/userPlus.json',gossip:'https://cdn.jsdelivr.net/gh/useAnimations/react-useanimations@master/src/lib/mail/mail.json',help:'https://cdn.jsdelivr.net/gh/useAnimations/react-useanimations@master/src/lib/help/help.json',set:'https://cdn.jsdelivr.net/gh/useAnimations/react-useanimations@master/src/lib/settings/settings.json',levels:'https://cdn.jsdelivr.net/gh/useAnimations/react-useanimations@master/src/lib/star/star.json',leaderboard:'https://cdn.jsdelivr.net/gh/xvrh/lottie-flutter/master/example/assets/lottiefiles/trophy.json',calendar:'https://cdn.jsdelivr.net/gh/useAnimations/react-useanimations@master/src/lib/calendar/calendar.json',hero:'https://lottie.host/3952c2bb-d2d3-4b39-8482-cd4f6ac898c4/xZZIDl8jKY.lottie'};
+const LOT={shop:'https://assets-v2.lottiefiles.com/a/233b5cd2-1162-11ee-bd9f-c7b496ad0fd5/biKgP0iWKD.lottie',friends:'https://fonts.gstatic.com/s/e/notoemoji/latest/1f91d/lottie.json',gossip:'https://fonts.gstatic.com/s/e/notoemoji/latest/1f440/lottie.json',help:'https://fonts.gstatic.com/s/e/notoemoji/latest/1f914/lottie.json',set:'https://assets-v2.lottiefiles.com/a/57bdbfa0-1166-11ee-974a-7bd316df51ae/2tvTWjuTWU.lottie',levels:'https://fonts.gstatic.com/s/e/notoemoji/latest/2b50/lottie.json',leaderboard:'https://assets-v2.lottiefiles.com/a/745fc364-117b-11ee-b7ec-9f18a8a356e0/ctpFpJP75f.lottie',calendar:'https://fonts.gstatic.com/s/e/notoemoji/latest/1f305/lottie.json',hero:'https://fonts.gstatic.com/s/e/notoemoji/latest/1f525/lottie.json',play:'https://fonts.gstatic.com/s/e/notoemoji/latest/26a1/lottie.json',gift:'https://fonts.gstatic.com/s/e/notoemoji/latest/1f389/lottie.json'};
 const lot=(src,cl='lottieMenuIcon')=>h('dotlottie-wc',{src,speed:'1',mode:'forward',loop:true,autoplay:true,class:cl});
 const screenTitleLot=(title)=>{
   let src=LOT.hero;
@@ -770,8 +770,8 @@ h('button',{className:'go',onClick:()=>{const n=name.trim();if(n.length<3||n.len
 scr=='menu'&&h('div',{className:'ov mn'},
 h('div',{className:'top2'},
 h('div',{className:'mnstat'},h('b',null,'🪙 '+S.coins),h('small',null,'Xu'),lot(LOT.shop,'statLot')),
-h('div',{className:'mnstat'},h('b',null,'🔥 '+(S.streak||0)),h('small',null,'Chuỗi tan ca'),lot(LOT.gossip,'statLot')),
-h('div',{className:'mnstat'},h('b',null,'🏆 '+S.wins),h('small',null,'Lần tan ca'),lot(LOT.friends,'statLot'))
+h('div',{className:'mnstat'},h('b',null,'🔥 '+(S.streak||0)),h('small',null,'Chuỗi tan ca'),lot(LOT.hero,'statLot')),
+h('div',{className:'mnstat'},h('b',null,'🏆 '+S.wins),h('small',null,'Lần tan ca'),lot(LOT.leaderboard,'statLot'))
 ),
 h('div',{className:'menuHero'},h('div',{className:'heroes'},h('img',{src:SP.nvidle,className:'hero a',alt:''}),h('img',{src:SP.alert,className:'hero b',alt:''})),lot(LOT.hero,'lottieMenuIcon heroSticker')),
 h('div',{className:'menuTitle'},h('h1',null,'TRỐN SẾP',h('b',null,'TAN CA')),h('div',{className:'menuTag'},'17:00 là giờ tan ca. Nhưng sếp chưa chắc cho bạn về.')),h('div',{className:'playerTag'},'👤 '+(S.nickname||'Người chơi')),
@@ -781,14 +781,14 @@ h('div',{className:'menuMissionName'},cfg(S.lv).n),
 h('div',{className:'menuMissionDesc'},cfg(S.lv).d)
 ),
 h('div',{className:'menuActions'},
-h('button',{className:'menuAction play',onClick:()=>start(S.lv)},lot(LOT.hero,'lottieMenuIcon small'),h('span',{className:'actionTxt'},'TIẾP TỤC · MÀN '+S.lv,h('small',null,'Bắt đầu ca trốn tiếp theo'))),
+h('button',{className:'menuAction play',onClick:()=>start(S.lv)},lot(LOT.play,'lottieMenuIcon small'),h('span',{className:'actionTxt'},'TIẾP TỤC · MÀN '+S.lv,h('small',null,'Bắt đầu ca trốn tiếp theo'))),
 h('button',{className:'menuAction calendar',onClick:openCal},lot(LOT.calendar,'lottieMenuIcon small'),h('span',{className:'actionTxt'},'LỊCH · '+(Math.min(60,S.cal.d+1))+'/60',h('small',null,'60 ngày công sở'))),
 h('button',{className:'menuAction',style:{background:'linear-gradient(135deg,#713cff,#4b31a8)'},onClick:()=>setScr('levels')},lot(LOT.levels,'lottieMenuIcon small'),h('span',{className:'actionTxt'},'CHỌN MÀN',h('small',null,'Chọn thử thách')))
 ),
 h('div',{className:'grid4'},
 mb('🛒','Cửa hàng','shop'),mb('🏆','Xếp hạng','leaderboard'),mb('👥','Bạn bè','friends'),mb('📖','Sổ hóng','gossip'),mb('❓','Cách chơi','help'),mb('⚙️','Cài đặt','set')
 ),
-S.daily!=today()&&h('button',{className:'gift',onClick:claim},lot(LOT.hero,'giftLot'),h('span',null,'Nhận quà hằng ngày'))
+S.daily!=today()&&h('button',{className:'gift',onClick:claim},lot(LOT.gift,'giftLot'),h('span',null,'Nhận quà hằng ngày'))
 ),
 scr=='cal'&&calView(),
 scr=='leaderboard'&&leaderboardView(),
